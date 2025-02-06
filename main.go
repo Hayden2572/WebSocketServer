@@ -52,10 +52,12 @@ func authUser(conn *websocket.Conn, users []user) bool {
 	for _, val := range users {
 		if val.name == string(login) {
 			if val.pass == string(password) {
+				conn.WriteMessage(websocket.TextMessage, []byte("Добро пожаловать "+string(login)))
 				return true
 			}
 		}
 	}
+	conn.WriteMessage(websocket.TextMessage, []byte("Неправильный логин или пароль"))
 	return false
 }
 
@@ -77,14 +79,18 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		log.Println("Not websocket")
 		return
 	}
+	for {
+		res := authUser(conn, users)
+		if res {
+			break
+		}
+	}
 	connections = append(connections, conn)
 	log.Println("Client connected", len(connections))
 	for {
-		for {
-			res := authUser(conn, users)
-			if res {
-				break
-			}
+		err := conn.WriteMessage(websocket.PingMessage, []byte("connесt?"))
+		if err != nil {
+			connections = removeConnection(connections, conn)
 		}
 		messageType, r, err := conn.ReadMessage()
 		if err != nil {
