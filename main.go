@@ -17,6 +17,48 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
+type user struct {
+	name string
+	pass string
+}
+
+var users = []user{
+	{"nikita", "12345"},
+	{"elya", "67890"},
+}
+
+func authUser(conn *websocket.Conn, users []user) bool {
+	var login, password []byte
+	err := conn.WriteMessage(websocket.TextMessage, []byte("Введите имя пользователя"))
+	if err != nil {
+		log.Println("Error while reading")
+		return false
+	}
+	_, login, err = conn.ReadMessage()
+	if err != nil {
+		log.Println("Error while reading")
+		return false
+	}
+	err = conn.WriteMessage(websocket.TextMessage, []byte("Введите пароль"))
+	if err != nil {
+		log.Println("Error while reading")
+		return false
+	}
+	_, password, err = conn.ReadMessage()
+	if err != nil {
+		log.Println("Error while reading")
+		return false
+	}
+	for _, val := range users {
+		if val.name == string(login) {
+			if val.pass == string(password) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func removeConnection(q []*websocket.Conn, conn *websocket.Conn) []*websocket.Conn {
 	var res []*websocket.Conn
 	for _, c := range q {
@@ -38,6 +80,12 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	connections = append(connections, conn)
 	log.Println("Client connected", len(connections))
 	for {
+		for {
+			res := authUser(conn, users)
+			if res {
+				break
+			}
+		}
 		messageType, r, err := conn.ReadMessage()
 		if err != nil {
 			log.Println("Error while reading message!")
