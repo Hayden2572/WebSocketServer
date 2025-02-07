@@ -25,6 +25,18 @@ type user struct {
 var users = []user{
 	{"nikita", "12345"},
 	{"elya", "67890"},
+	{"serega", "imgay"},
+	{"dima", "trenbolonmyloVe12345"},
+}
+
+func connectionLimit(conn *websocket.Conn, connections []*websocket.Conn, n int) bool {
+	if len(connections) >= n {
+		conn.WriteMessage(websocket.TextMessage, []byte("Достигнут лимит на количество подключенных пользователей, иди нахуй"))
+		conn.Close()
+		return false
+	} else {
+		return true
+	}
 }
 
 func authUser(conn *websocket.Conn, users []user) bool {
@@ -79,14 +91,22 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		log.Println("Not websocket")
 		return
 	}
+	errno := connectionLimit(conn, connections, 5)
+	connections = append(connections, conn)
+	log.Println("Client connected", len(connections))
+	if !errno {
+		connections = removeConnection(connections, conn)
+		return
+	}
 	for {
+		if err = conn.WriteMessage(websocket.PingMessage, []byte("")); err != nil {
+			return
+		}
 		res := authUser(conn, users)
 		if res {
 			break
 		}
 	}
-	connections = append(connections, conn)
-	log.Println("Client connected", len(connections))
 	for {
 		err := conn.WriteMessage(websocket.PingMessage, []byte("connесt?"))
 		if err != nil {
