@@ -7,7 +7,7 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var connections = []*websocket.Conn{}
+var connections = map[string]*websocket.Conn{}
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  2048,
@@ -29,7 +29,7 @@ var users = []user{
 	{"dima", "trenbolonmyloVe12345"},
 }
 
-func connectionLimit(conn *websocket.Conn, connections []*websocket.Conn, n int) bool {
+func connectionLimit(conn *websocket.Conn, connections map[string]*websocket.Conn, n int) bool {
 	if len(connections) >= n {
 		conn.WriteMessage(websocket.TextMessage, []byte("Достигнут лимит на количество подключенных пользователей, иди нахуй"))
 		conn.Close()
@@ -39,76 +39,85 @@ func connectionLimit(conn *websocket.Conn, connections []*websocket.Conn, n int)
 	}
 }
 
-func authUser(conn *websocket.Conn, users []user) bool {
+type auth struct {
+	result bool
+	name   string
+}
+
+func authUser(conn *websocket.Conn, users []user) auth {
 	var login, password []byte
 	err := conn.WriteMessage(websocket.TextMessage, []byte("Введите имя пользователя"))
 	if err != nil {
 		log.Println("Error while reading")
-		return false
+		return auth{false, ""}
 	}
 	_, login, err = conn.ReadMessage()
 	if err != nil {
 		log.Println("Error while reading")
-		return false
+		return auth{false, ""}
 	}
 	err = conn.WriteMessage(websocket.TextMessage, []byte("Введите пароль"))
 	if err != nil {
 		log.Println("Error while reading")
-		return false
+		return auth{false, ""}
 	}
 	_, password, err = conn.ReadMessage()
 	if err != nil {
 		log.Println("Error while reading")
-		return false
+		return auth{false, ""}
 	}
 	for _, val := range users {
 		if val.name == string(login) {
 			if val.pass == string(password) {
 				conn.WriteMessage(websocket.TextMessage, []byte("Добро пожаловать "+string(login)))
-				return true
+				return auth{true, val.name}
 			}
 		}
 	}
 	conn.WriteMessage(websocket.TextMessage, []byte("Неправильный логин или пароль"))
-	return false
+	return auth{false, ""}
 }
 
-func removeConnection(q []*websocket.Conn, conn *websocket.Conn) []*websocket.Conn {
-	var res []*websocket.Conn
-	for _, c := range q {
-		if c != conn {
-			res = append(res, c)
+func removeConnection(q map[string]*websocket.Conn, conn *websocket.Conn) map[string]*websocket.Conn {
+	for name, c := range q {
+		if c == conn {
+			delete(q, name)
 		}
 	}
-	log.Println("Connection Closed", len(res))
-	conn.Close()
-	return res
+	log.Println("Connection Closed", len(q))
+	err := conn.Close()
+	if err != nil {
+		log.Println("Error while closing websocket")
+	}
+	return q
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
+	//upgrade to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Not websocket")
 		return
 	}
-	errno := connectionLimit(conn, connections, 5)
-	connections = append(connections, conn)
-	log.Println("Client connected", len(connections))
-	if !errno {
-		connections = removeConnection(connections, conn)
+	//check for empty places
+	pass := connectionLimit(conn, connections, 4)
+	if !pass {
 		return
 	}
+	//auth process
 	for {
 		if err = conn.WriteMessage(websocket.PingMessage, []byte("")); err != nil {
 			return
 		}
 		res := authUser(conn, users)
-		if res {
+		if res.result {
+			connections[res.name] = conn
 			break
 		}
 	}
+	//websocket listening
 	for {
-		err := conn.WriteMessage(websocket.PingMessage, []byte("connесt?"))
+		err := conn.WriteMessage(websocket.PingMessage, []byte(""))
 		if err != nil {
 			connections = removeConnection(connections, conn)
 		}
@@ -120,9 +129,17 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			log.Println("Message handled")
 		}
-		for _, c := range connections {
+		answer := ""
+		for name, c := range connections {
+			if c == conn {
+				answer = name + ": " + string(r)
+				break
+			}
+		}
+		for name, c := range connections {
 			if c != conn {
-				err := c.WriteMessage(messageType, r)
+				log.Println(name)
+				err := c.WriteMessage(messageType, []byte(answer))
 				if err != nil {
 					log.Println("Error while writing message!")
 					connections = removeConnection(connections, conn)
@@ -133,6 +150,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// main func
 func main() {
 	http.HandleFunc("/ws", handler)
 	log.Println("Server started at port 8000")
