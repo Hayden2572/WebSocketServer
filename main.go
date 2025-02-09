@@ -1,10 +1,12 @@
 package main
 
 import (
+	"database/sql"
 	"log"
 	"net/http"
 
 	"github.com/gorilla/websocket"
+	_ "github.com/lib/pq"
 )
 
 var connections = map[string]*websocket.Conn{}
@@ -22,11 +24,30 @@ type user struct {
 	pass string
 }
 
-var users = []user{
-	{"nikita", "12345"},
-	{"elya", "67890"},
-	{"serega", "imgay"},
-	{"dima", "trenbolonmyloVe12345"},
+var users = []user{}
+
+func connectDB() []user {
+	connStr := "user=sxneatxr password=root port=5432 host=localhost dbname=chatInfo sslmode=disable"
+	db, err := sql.Open("postgres", connStr)
+	if err != nil {
+		log.Println("Error while connecting database")
+	}
+	log.Println("Succesfully connected to database")
+	rows, err := db.Query("SELECT * FROM public.users")
+	if err != nil {
+		log.Println("Error while reading data from database")
+	}
+	users := make([]user, 0)
+	for rows.Next() {
+		var id int
+		var name, pass string
+		err = rows.Scan(&id, &name, &pass)
+		if err != nil {
+			log.Println("Error while reading row")
+		}
+		users = append(users, user{name, pass})
+	}
+	return users
 }
 
 func connectionLimit(conn *websocket.Conn, connections map[string]*websocket.Conn, n int) bool {
@@ -94,6 +115,7 @@ func removeConnection(q map[string]*websocket.Conn, conn *websocket.Conn) map[st
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	//upgrade to WebSocket
+	users = connectDB()
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Not websocket")
@@ -150,7 +172,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// main func
 func main() {
 	http.HandleFunc("/ws", handler)
 	log.Println("Server started at port 8000")
